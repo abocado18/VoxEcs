@@ -100,9 +100,13 @@ namespace vox_ecs
         template <typename T1, typename... Ts, typename Func>
         void forEach(Func &&func)
         {
+
+            static_assert(std::is_invocable_v<Func, Ecs *, Entity, T1 &, Ts &...>,
+                          "Lambda signature must start with (Ecs*, Entity, T1&, Ts&...)");
+
             SparseSet<T1> *sparse_set_t1 = getSparseSet<T1>();
 
-            if (sparse_set_t1 == nullptr)
+                        if (sparse_set_t1 == nullptr)
                 return;
 
             // Loop over all T1s
