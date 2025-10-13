@@ -1,0 +1,8 @@
+[
+{
+  "directory": "/home/jan/Schreibtisch/Projects/VoxEcs/build",
+  "command": "/usr/bin/clang++ -O3 -DNDEBUG -std=c++17 -o CMakeFiles/VoxEcs.dir/main.cpp.o -c /home/jan/Schreibtisch/Projects/VoxEcs/main.cpp",
+  "file": "/home/jan/Schreibtisch/Projects/VoxEcs/main.cpp",
+  "output": "CMakeFiles/VoxEcs.dir/main.cpp.o"
+}
+]

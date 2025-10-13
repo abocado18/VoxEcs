@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"/home/jan/Schreibtisch/Projects/VoxEcs/build/cmake_install.cmake"
+	],
+	"Parallel" : false
+}
