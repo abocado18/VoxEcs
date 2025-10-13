@@ -1,63 +1,92 @@
 #include "vox_ecs.h"
-
+#include <chrono>
 #include <iostream>
 
-#include <string>
-
-#include<type_traits>
-
-struct Summer
+struct Position
 {
-    uint64_t a;
+    float x, y, z;
+};
+struct Velocity
+{
+    float x, y, z;
+};
+struct Health
+{
+    float value;
 };
 
-struct Number
+template <typename T>
+constexpr bool is_const_val(T &&)
 {
-    float a = 4.5f;
-};
+    return std::is_const<std::remove_reference_t<T>>::value;
+}
 
-
-int main(int, char **)
+int main()
 {
-    using namespace vox_ecs;
-
-    volatile uint64_t total_sum = 0;
-
-    constexpr uint64_t NUMBER = 1000000;
-
-
-    int a = 3;
-
-    assert(std::is_const(a));
-
-    Ecs ecs = Ecs();
-
-    for (size_t i = 0; i < NUMBER; i++)
-    {
-        Entity e = ecs.createEntity();
-
-        Summer s = {};
-        s.a = i;
-
-        ecs.addComponent<Summer>(e, s);
-    }
-
-    Number v;
-    v.a = 3.5f;
-
-    ecs.insertResource<Number>(v);
-
-    ecs.forEach<Summer>([&total_sum](Entity &e, Summer &s) {
-        total_sum += s.a;
-    });
-
 
     
-    auto b = ecs.getResource<Number>();
 
-    float c = b->a;
 
-    std::cout << c << "\n";
+    vox_ecs::Ecs ecs;
 
-    std::cout << total_sum;
+    
+    ecs.insertResource<float>(3.5f);
+
+    constexpr size_t num_entities = 3000000;
+
+    
+
+    // Create entities and add components
+    for (size_t i = 0; i < num_entities; ++i)
+    {
+        auto e = ecs.createEntity();
+        ecs.addComponent<Position>(e, Position{float(i), float(i), float(i)});
+        if (i % 2 == 0)
+            ecs.addComponent<Velocity>(e, Velocity{0.1f, 0.2f, 0.3f});
+        if (i % 4 == 0)
+            ecs.addComponent<Health>(e, Health{100.0f});
+    }
+
+    // Benchmark single-component iteration
+    auto start = std::chrono::high_resolution_clock::now();
+
+    ecs.forEach<Position>([](vox_ecs::Ecs *ecs, vox_ecs::Entity e, Position &p)
+                          {
+                              p.x += 1.0f;
+                          });
+    auto end = std::chrono::high_resolution_clock::now();
+    std::cout << "Single-component (Position) iteration: "
+              << std::chrono::duration<double, std::micro>(end - start).count()
+              << " μs\n";
+
+    // Benchmark two-component iteration
+    start = std::chrono::high_resolution_clock::now();
+    ecs.forEach<Position, Velocity>([](vox_ecs::Ecs *ecs, vox_ecs::Entity e, Position &p, Velocity &v)
+                                    {
+                                        p.x += v.x;
+                                        p.y += v.y;
+                                        p.z += v.z;
+                                    });
+    end = std::chrono::high_resolution_clock::now();
+    std::cout << "Two-component (Position + Velocity) iteration: "
+              << std::chrono::duration<double, std::micro>(end - start).count()
+              << " μs\n";
+
+    // Benchmark three-component iteration
+    start = std::chrono::high_resolution_clock::now();
+    ecs.forEach<Position, Velocity, Health>([](vox_ecs::Ecs *ecs, vox_ecs::Entity e, Position &p, Velocity &v, Health &h)
+                                            {
+
+                                               float f= *ecs->getResource<float>();
+
+                                                p.x += v.x * h.value * f;
+                                                p.y += v.y * h.value;
+                                                p.z += v.z * h.value;
+                                            });
+    end = std::chrono::high_resolution_clock::now();
+    std::cout << "Three-component (Position + Velocity + Health) iteration: "
+              << std::chrono::duration<double, std::micro>(end - start).count()
+              << " μs\n";
+
+    return 0;
 }

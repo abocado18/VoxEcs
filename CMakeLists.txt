@@ -9,3 +9,13 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_executable(VoxEcs vox_ecs.h main.cpp)
 
+
+
+# Compiler-specific flags
+if(MSVC)
+    # /O2 = maximize speed, /Ot = favor fast code
+    target_compile_options(VoxEcs PRIVATE /O2 /Ot)
+else()
+    # GCC/Clang flags for optimization
+    target_compile_options(VoxEcs PRIVATE -O3 -march=native -flto)
+endif()

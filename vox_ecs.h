@@ -125,11 +125,11 @@ namespace vox_ecs
 
                     if constexpr (sizeof...(Ts) > 0)
                     {
-                        func(e, t1, *getComponent<Ts>(e)...);
+                        func(this, e, t1, *getComponent<Ts>(e)...);
                     }
                     else
                     {
-                        func(e, t1);
+                        func(this, e, t1);
                     }
                 }
             }

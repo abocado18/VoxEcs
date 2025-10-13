@@ -1,0 +1,3 @@
+/home/jan/Schreibtisch/Projects/VoxEcs/out/build/R/CMakeFiles/VoxEcs.dir
+/home/jan/Schreibtisch/Projects/VoxEcs/out/build/R/CMakeFiles/edit_cache.dir
+/home/jan/Schreibtisch/Projects/VoxEcs/out/build/R/CMakeFiles/rebuild_cache.dir
