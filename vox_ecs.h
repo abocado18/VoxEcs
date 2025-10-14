@@ -256,11 +256,6 @@ namespace vecs
             }
         }
 
-        template <typename T>
-        uint64_t getComponentCount()
-        {
-            return getSparseSet<T>()->dense.size();
-        }
 
         template <typename T>
         SparseSet<T> &getOrCreateSparseSet()
