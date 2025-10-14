@@ -12,12 +12,15 @@ namespace vox_ecs
     using Entity = uint64_t;
     constexpr Entity NO_ENTITY = UINT64_MAX;
 
-    enum class Schedule : uint8_t
+    class Ecs; // Forward Decl
+
+    struct Schedule
     {
-        Startup,
-        PreTick,
-        Tick,
-        PostTick
+
+        explicit Schedule() : systems({}) {};
+        ~Schedule() = default;
+
+        std::unordered_set<void (*)(Ecs *)> systems;
     };
 
     struct SparseSetBase
@@ -204,22 +207,19 @@ namespace vox_ecs
             return &resource->data;
         }
 
-        void addSystem(Schedule schedule, void (*func_ptr)(Ecs*))
+        void addSystem(Schedule &schedule, void (*func_ptr)(Ecs *))
         {
-            systems[schedule].insert(func_ptr);
+            schedule.systems.insert(func_ptr);
         }
 
-        void removeSystem(Schedule schedule, void (*func_ptr)(Ecs*))
+        void removeSystem(Schedule &schedule, void (*func_ptr)(Ecs *))
         {
-            if (systems.find(schedule) != systems.end())
-            {
-                systems[schedule].erase(func_ptr);
-            }
+            schedule.systems.erase(func_ptr);
         }
 
         void runSchedule(Schedule schedule)
         {
-            for (auto &sys : systems[schedule])
+            for (auto &sys : schedule.systems)
             {
                 sys(this);
             }
@@ -277,7 +277,5 @@ namespace vox_ecs
         static inline uint64_t next_resource_id = 0;
 
         std::vector<ResourceBase *> resources = {};
-
-        std::unordered_map<Schedule, std::unordered_set<void (*)(Ecs*)>> systems;
     };
 }
