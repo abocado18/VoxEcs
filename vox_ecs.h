@@ -5,11 +5,20 @@
 #include <typeindex>
 #include <memory>
 #include <cassert>
+#include <unordered_set>
 
 namespace vox_ecs
 {
     using Entity = uint64_t;
     constexpr Entity NO_ENTITY = UINT64_MAX;
+
+    enum class Schedule : uint8_t
+    {
+        Startup,
+        PreTick,
+        Tick,
+        PostTick
+    };
 
     struct SparseSetBase
     {
@@ -106,7 +115,7 @@ namespace vox_ecs
 
             SparseSet<T1> *sparse_set_t1 = getSparseSet<T1>();
 
-                        if (sparse_set_t1 == nullptr)
+            if (sparse_set_t1 == nullptr)
                 return;
 
             // Loop over all T1s
@@ -195,6 +204,27 @@ namespace vox_ecs
             return &resource->data;
         }
 
+        void addSystem(Schedule schedule, void (*func_ptr)(Ecs*))
+        {
+            systems[schedule].insert(func_ptr);
+        }
+
+        void removeSystem(Schedule schedule, void (*func_ptr)(Ecs*))
+        {
+            if (systems.find(schedule) != systems.end())
+            {
+                systems[schedule].erase(func_ptr);
+            }
+        }
+
+        void runSchedule(Schedule schedule)
+        {
+            for (auto &sys : systems[schedule])
+            {
+                sys(this);
+            }
+        }
+
     private:
         template <typename T>
         SparseSet<T> &getOrCreateSparseSet()
@@ -247,5 +277,7 @@ namespace vox_ecs
         static inline uint64_t next_resource_id = 0;
 
         std::vector<ResourceBase *> resources = {};
+
+        std::unordered_map<Schedule, std::unordered_set<void (*)(Ecs*)>> systems;
     };
 }
