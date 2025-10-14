@@ -31,6 +31,7 @@ namespace vox_ecs
     template <typename T>
     struct SparseSet : SparseSetBase
     {
+
         std::vector<T> dense;
         std::vector<Entity> dense_entities;
         std::vector<uint64_t> sparse;
@@ -45,6 +46,23 @@ namespace vox_ecs
     struct Resource : ResourceBase
     {
         T data;
+    };
+
+    /// @brief Returns type per Index using recursive
+    /// @tparam First
+    /// @tparam ...Rest
+    /// @tparam idx
+    template <size_t idx, typename First, typename... Rest>
+    struct TypeAt
+    {
+        using type = typename TypeAt<idx - 1, Rest...>::type;
+    };
+
+    // Used when Index is 0
+    template <typename First, typename... Rest>
+    struct TypeAt<0, First, Rest...>
+    {
+        using type = First;
     };
 
     class Ecs
@@ -109,46 +127,33 @@ namespace vox_ecs
             set->sparse[e] = NO_ENTITY;
         }
 
-        template <typename T1, typename... Ts, typename Func>
+        template <typename... Ts, typename Func>
         void forEach(Func &&func)
         {
 
-            static_assert(std::is_invocable_v<Func, Ecs *, Entity, T1 &, Ts &...>,
+            static_assert(std::is_invocable_v<Func, Ecs *, Entity, Ts &...>,
                           "Lambda signature must start with (Ecs*, Entity, T1&, Ts&...)");
 
-            SparseSet<T1> *sparse_set_t1 = getSparseSet<T1>();
+            size_t dense_sizes[] = {getSparseSet<Ts>()->dense.size()...};
 
-            if (sparse_set_t1 == nullptr)
-                return;
+            size_t smallest_index = 0;
+            size_t smallest_size = dense_sizes[0];
 
-            // Loop over all T1s
-            for (size_t i = 0; i < sparse_set_t1->dense.size(); i++)
+            for (size_t i = 0; i < sizeof...(Ts); i++)
             {
-
-                Entity e = sparse_set_t1->dense_entities[i];
-
-                bool valid = true;
-
-                if constexpr (sizeof...(Ts) > 0)
+                if (dense_sizes[i] < smallest_size)
                 {
-                    valid = hasComponents<Ts...>(e);
-                }
-
-                if (valid)
-                {
-
-                    auto &t1 = sparse_set_t1->dense[i];
-
-                    if constexpr (sizeof...(Ts) > 0)
-                    {
-                        func(this, e, t1, *getComponent<Ts>(e)...);
-                    }
-                    else
-                    {
-                        func(this, e, t1);
-                    }
+                    smallest_index = i;
+                    smallest_size = dense_sizes[i];
                 }
             }
+
+            size_t count = 0;
+            SparseSetBase *result = nullptr;
+
+            ((count++ == smallest_index ? (iterateSparseSet<Ts, Ts...>(getSparseSet<Ts>(), func), true) : false) || ...);
+
+           
         }
 
         template <typename T>
@@ -226,6 +231,37 @@ namespace vox_ecs
         }
 
     private:
+        template <typename smallest_T, typename... Ts, typename Func>
+        void iterateSparseSet(SparseSet<smallest_T> *smallest_set, Func &&func)
+        {
+
+            if (smallest_set == nullptr)
+                return;
+
+            for (size_t i = 0; i < smallest_set->dense.size(); i++)
+            {
+                Entity e = smallest_set->dense_entities[i];
+
+                if constexpr (sizeof...(Ts) > 1) //Smallest set also in Ts
+                {
+                    if (hasComponents<Ts...>(e) == false)
+                        continue;
+
+                    func(this, e, *getComponent<Ts>(e)...);
+                }
+                else
+                {
+                    func(this, e, smallest_set->dense[i]);
+                }
+            }
+        }
+
+        template <typename T>
+        uint64_t getComponentCount()
+        {
+            return getSparseSet<T>()->dense.size();
+        }
+
         template <typename T>
         SparseSet<T> &getOrCreateSparseSet()
         {
