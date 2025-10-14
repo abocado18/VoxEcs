@@ -6,6 +6,7 @@
 #include <memory>
 #include <cassert>
 #include <unordered_set>
+#include <type_traits>
 
 namespace vecs
 {
@@ -21,6 +22,77 @@ namespace vecs
         ~Schedule() = default;
 
         std::unordered_set<void (*)(Ecs *)> systems;
+    };
+
+    template <typename T>
+    struct Write
+    {
+        using type = T;
+    };
+
+    template <typename T>
+    struct Read
+    {
+        using type = T;
+    };
+
+    
+
+    template <typename T>
+    struct unwrap_component
+    {
+        using type = T;
+    };
+
+    template <typename T>
+    struct unwrap_component<Read<T>>
+    {
+        using type = T;
+    };
+
+    template <typename T>
+    struct unwrap_component<Write<T>>
+    {
+        using type = T;
+    };
+
+    template <typename T>
+    using component_t = typename unwrap_component<T>::type;
+
+    template <typename T>
+    struct lambda_type
+    {
+        using type = typename unwrap_component<T>::type &; // default: writable
+    };
+
+    template <typename T>
+    struct lambda_type<Read<T>>
+    {
+        using type = const T &; // read-only
+    };
+
+    template <typename T>
+    struct lambda_type<Write<T>>
+    {
+        using type = T &; // writable
+    };
+
+    template <typename T>
+    using lambda_t = typename lambda_type<T>::type;
+
+    template <typename T>
+    struct is_read_or_write : std::false_type
+    {
+    };
+
+    template <typename T>
+    struct is_read_or_write<Read<T>> : std::true_type
+    {
+    };
+
+    template <typename T>
+    struct is_read_or_write<Write<T>> : std::true_type
+    {
     };
 
     struct SparseSetBase
@@ -86,6 +158,12 @@ namespace vecs
         template <typename T>
         void addComponent(Entity e, T component)
         {
+
+            if (hasComponents<T>(e))
+                return;
+
+            static_assert(!is_read_or_write<T>());
+
             SparseSet<T> &set = getOrCreateSparseSet<T>();
 
             set.dense.push_back(component);
@@ -131,10 +209,12 @@ namespace vecs
         void forEach(Func &&func)
         {
 
-            static_assert(std::is_invocable_v<Func, Ecs *, Entity, Ts &...>,
-                          "Lambda signature must start with (Ecs*, Entity, T1&, Ts&...)");
+            static_assert((is_read_or_write<Ts>::value && ...),
+                          "All components must be wrapped in Read<T> or Write<T>!");
 
-            size_t dense_sizes[] = {getSparseSet<Ts>()->dense.size()...};
+            using ComponentTypes = std::tuple<typename unwrap_component<Ts>::type...>;
+
+            size_t dense_sizes[] = {getSparseSet<typename unwrap_component<Ts>::type>()->dense.size()...};
 
             size_t smallest_index = 0;
             size_t smallest_size = dense_sizes[0];
@@ -149,11 +229,13 @@ namespace vecs
             }
 
             size_t count = 0;
-            SparseSetBase *result = nullptr;
 
-            ((count++ == smallest_index ? (iterateSparseSet<Ts, Ts...>(getSparseSet<Ts>(), func), true) : false) || ...);
-
-           
+            ((count++ == smallest_index
+                  ? (iterateSparseSet<typename unwrap_component<Ts>::type, Ts...>(
+                         getSparseSet<typename unwrap_component<Ts>::type>(), func),
+                     true)
+                  : false) ||
+             ...);
         }
 
         template <typename T>
@@ -165,14 +247,6 @@ namespace vecs
                 return nullptr;
 
             return &set->dense[set->sparse[e]];
-        }
-
-        template <typename... Ts>
-        bool hasComponents(Entity e)
-        {
-            return (... && (getSparseSet<Ts>() &&
-                            e < getSparseSet<Ts>()->sparse.size() &&
-                            getSparseSet<Ts>()->sparse[e] != NO_ENTITY));
         }
 
         Entity createEntity()
@@ -214,6 +288,7 @@ namespace vecs
 
         void addSystem(Schedule &schedule, void (*func_ptr)(Ecs *))
         {
+
             schedule.systems.insert(func_ptr);
         }
 
@@ -231,6 +306,14 @@ namespace vecs
         }
 
     private:
+        template <typename... Ts>
+        bool hasComponents(Entity e)
+        {
+            return (... && (getSparseSet<component_t<Ts>>() &&
+                            e < getSparseSet<component_t<Ts>>()->sparse.size() &&
+                            getSparseSet<component_t<Ts>>()->sparse[e] != NO_ENTITY));
+        }
+
         template <typename smallest_T, typename... Ts, typename Func>
         void iterateSparseSet(SparseSet<smallest_T> *smallest_set, Func &&func)
         {
@@ -242,20 +325,19 @@ namespace vecs
             {
                 Entity e = smallest_set->dense_entities[i];
 
-                if constexpr (sizeof...(Ts) > 1) //Smallest set also in Ts
+                if constexpr (sizeof...(Ts) > 1) // Smallest set also in Ts
                 {
                     if (hasComponents<Ts...>(e) == false)
                         continue;
 
-                    func(this, e, *getComponent<Ts>(e)...);
+                    func(this, e, static_cast<lambda_t<Ts>>(*getComponent<component_t<Ts>>(e))...);
                 }
                 else
                 {
-                    func(this, e, smallest_set->dense[i]);
+                    func(this, e, static_cast<lambda_t<smallest_T>>(*getComponent<component_t<smallest_T>>(e)));
                 }
             }
         }
-
 
         template <typename T>
         SparseSet<T> &getOrCreateSparseSet()
