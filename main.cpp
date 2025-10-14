@@ -27,7 +27,7 @@ int main()
     
 
 
-    vox_ecs::Ecs ecs;
+    vecs::Ecs ecs;
 
     
     ecs.insertResource<float>(3.5f);
@@ -53,7 +53,7 @@ int main()
     // Benchmark single-component iteration
     auto start = std::chrono::high_resolution_clock::now();
 
-    ecs.forEach<Position>([&](vox_ecs::Ecs *ecs, vox_ecs::Entity e, Position &p)
+    ecs.forEach<Position>([&](vecs::Ecs *ecs, vecs::Entity e, Position &p)
                           {
                               p.x += 1.0f;
                               sum += p.x;
@@ -65,7 +65,7 @@ int main()
 
     // Benchmark two-component iteration
     start = std::chrono::high_resolution_clock::now();
-    ecs.forEach<Position, Velocity>([&](vox_ecs::Ecs *ecs, vox_ecs::Entity e, Position &p, Velocity &v)
+    ecs.forEach<Position, Velocity>([&](vecs::Ecs *ecs, vecs::Entity e, Position &p, Velocity &v)
                                     {
                                         p.x += v.x;
                                         p.y += v.y;
@@ -81,7 +81,7 @@ int main()
 
     // Benchmark three-component iteration
     start = std::chrono::high_resolution_clock::now();
-    ecs.forEach<Position, Velocity, Health>([&](vox_ecs::Ecs *ecs, vox_ecs::Entity e, Position &p, Velocity &v, Health &h)
+    ecs.forEach<Position, Velocity, Health>([&](vecs::Ecs *ecs, vecs::Entity e, Position &p, Velocity &v, Health &h)
                                             {
 
                                                float f= *ecs->getResource<float>();

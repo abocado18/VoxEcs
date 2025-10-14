@@ -7,7 +7,7 @@
 #include <cassert>
 #include <unordered_set>
 
-namespace vox_ecs
+namespace vecs
 {
     using Entity = uint64_t;
     constexpr Entity NO_ENTITY = UINT64_MAX;
