@@ -36,8 +36,6 @@ namespace vecs
         using type = T;
     };
 
-    
-
     template <typename T>
     struct unwrap_component
     {
@@ -92,6 +90,21 @@ namespace vecs
 
     template <typename T>
     struct is_read_or_write<Write<T>> : std::true_type
+    {
+    };
+
+    template <typename T>
+    struct is_read : std::false_type
+    {
+    };
+
+    template <typename T>
+    struct is_read<Read<T>> : std::true_type
+    {
+    };
+
+    template <typename T>
+    struct is_read<Write<T>> : std::false_type
     {
     };
 
