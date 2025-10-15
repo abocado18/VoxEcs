@@ -15,10 +15,20 @@ struct Health
     float value;
 };
 
-template <typename T>
-constexpr bool is_const_val(T &&)
+template <size_t N>
+void createDummySystems(vecs::Ecs &ecs, vecs::Schedule &schedule)
 {
-    return std::is_const<std::remove_reference_t<T>>::value;
+    for (size_t i = 0; i < N; i++)
+    {
+        ecs.addSystem<vecs::Read<Position>, vecs::Read<Health>>(schedule, [](vecs::Ecs *ecs, vecs::Entity e, const Position &pos, const Health &h)
+                                                                 {
+            
+            volatile uint64_t number = 0;
+
+            
+
+            number += pos.x; });
+    }
 }
 
 int main()
@@ -30,7 +40,8 @@ int main()
 
     ecs.insertResource<float>(3.5f);
 
-    constexpr size_t num_entities = 1'000'0000;
+    constexpr size_t num_entities = 1'000'000;
+    ;
 
     volatile double sum = 0.0;
     // Create entities and add components
@@ -44,55 +55,34 @@ int main()
             ecs.addComponent<Health>(e, Health{100.0f});
     }
 
+    constexpr size_t num_systems = 650;
 
+    vecs::Schedule Update;
     
 
-    // Benchmark single-component iteration
-    auto start = std::chrono::high_resolution_clock::now();
+    createDummySystems<num_systems>(ecs, Update);
 
-    ecs.forEach<Write<Position>>([&](vecs::Ecs *ecs, vecs::Entity e, Position &p)
-                                 {
-                              p.x += 1.0f;
-                              sum += p.x; });
-    auto end = std::chrono::high_resolution_clock::now();
-    std::cout << "Single-component (Position) iteration: "
-              << std::chrono::duration<double, std::micro>(end - start).count()
-              << " μs\n";
+    {
+        auto start = std::chrono::high_resolution_clock::now();
 
-    // Benchmark two-component iteration
-    start = std::chrono::high_resolution_clock::now();
-    ecs.forEach<Write<Position>, Read<Velocity>>([&](vecs::Ecs *ecs, vecs::Entity e, Position &p, const Velocity &v)
-                                                 {
-                                                     p.x += v.x;
-                                                     p.y += v.y;
-                                                     p.z += v.z;
+        ecs.runSchedule(Update);
 
-                                                     sum += p.x; });
-    end = std::chrono::high_resolution_clock::now();
-    std::cout << "Two-component (Position + Velocity) iteration: "
-              << std::chrono::duration<double, std::micro>(end - start).count()
-              << " μs\n";
+        auto end = std::chrono::high_resolution_clock::now();
 
-    // Benchmark three-component iteration
-    start = std::chrono::high_resolution_clock::now();
-    ecs.forEach<Write<Position>, Read<Velocity>, Read<Health>>([&](vecs::Ecs *ecs, vecs::Entity e, Position &p, const Velocity &v, const Health &h)
-                                                               {
+        std::chrono::duration<double, std::micro> duration = end - start;
 
-                                             
+        std::cout << "Duration for single is: " << duration.count() << "microseconds\n";
+    }
 
-                                                p.x += v.x * h.value;
-                                                p.y += v.y * h.value;
-                                                p.z += v.z * h.value;
+    {
+        auto start = std::chrono::high_resolution_clock::now();
 
-                                                
+        ecs.runScheduleParallel(Update);
 
-                                                sum += p.x; });
-    end = std::chrono::high_resolution_clock::now();
-    std::cout << "Three-component (Position + Velocity + Health) iteration: "
-              << std::chrono::duration<double, std::micro>(end - start).count()
-              << " μs\n";
+        auto end = std::chrono::high_resolution_clock::now();
 
-    std::cout << sum << "\n";
+        std::chrono::duration<double, std::micro> duration = end - start;
 
-    return 0;
+        std::cout << "Duration for paralell is: " << duration.count() << "microseconds\n";
+    }
 }

@@ -7,7 +7,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 
 
-add_executable(VoxEcs vox_ecs.h main.cpp)
+add_executable(VoxEcs thread_pool.h dynamic_bitset.h vox_ecs.h main.cpp)
 
 
 
