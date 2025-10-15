@@ -116,7 +116,6 @@ namespace vecs
     {
         SystemWrapper() : callback({}), read(0), write(0) {};
 
-
         SystemWrapper(std::function<void(Ecs *)> callback, bit::Bitset read, bit::Bitset write)
             : callback(callback),
               read(read),
@@ -155,11 +154,6 @@ namespace vecs
         T data;
     };
 
-   
-   
-
-   
-
     class Ecs
     {
     public:
@@ -180,6 +174,32 @@ namespace vecs
                 delete resource;
             }
         }
+
+        template <typename... Ts>
+        class SystemView
+        {
+        public:
+            SystemView(Ecs *ecs) : ecs(ecs) {};
+
+            template <typename T>
+            auto get(Entity e)
+            {
+                static_assert((std::is_same_v<T, component_t<Ts>> || ...),
+                              "Component T is not in this system's query!");
+
+                static_assert((is_read_or_write<T>::value) == true);
+
+                using Comp = component_t<T>;
+
+                if constexpr (is_read<T>::value)
+                    return static_cast<const Comp *>(ecs->getComponent<Comp>(e));
+                else
+                    return ecs->getComponent<Comp>(e);
+            }
+
+        private:
+            Ecs *ecs;
+        };
 
         template <typename T>
         void addComponent(Entity e, T component)
@@ -315,8 +335,6 @@ namespace vecs
         template <typename... Ts, typename Func>
         uint64_t addSystem(Schedule &schedule, Func &&func)
         {
-
-            
 
             static_assert(std::is_member_function_pointer_v<decltype(&std::decay_t<Func>::operator())>,
                           "func must define operator(), i.e., must be a lambda or functor");
@@ -481,11 +499,16 @@ namespace vecs
                     if (hasComponents<Ts...>(e) == false)
                         continue;
 
-                    func(this, e, static_cast<lambda_t<Ts>>(*getComponent<component_t<Ts>>(e))...);
+                    SystemView<Ts...> view(this);
+
+                    func(view, e, *getComponent<component_t<Ts>>(e)...);
                 }
                 else
                 {
-                    func(this, e, static_cast<lambda_t<smallest_T>>(*getComponent<component_t<smallest_T>>(e)));
+
+                    SystemView<smallest_T> view(this);
+
+                    func(view, e, *getComponent<component_t<smallest_T>>(e));
                 }
             }
         }
@@ -542,15 +565,12 @@ namespace vecs
 
         std::vector<ResourceBase *> resources = {};
 
-        
         inline uint64_t getNextSystemId()
         {
             static uint64_t next_system_id = 0;
             uint64_t id = next_system_id++;
             return id;
         };
-
-        
 
         std::vector<SystemWrapper> systems;
     };
