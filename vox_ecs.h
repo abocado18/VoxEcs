@@ -7,6 +7,7 @@
 #include <cassert>
 #include <unordered_set>
 #include <type_traits>
+#include <functional>
 
 namespace vecs
 {
@@ -18,10 +19,10 @@ namespace vecs
     struct Schedule
     {
 
-        explicit Schedule() : systems({}) {};
+        explicit Schedule() {};
         ~Schedule() = default;
 
-        std::unordered_set<void (*)(Ecs *)> systems;
+        std::unordered_set<uint64_t> systems;
     };
 
     template <typename T>
@@ -299,22 +300,66 @@ namespace vecs
             return &resource->data;
         }
 
-        void addSystem(Schedule &schedule, void (*func_ptr)(Ecs *))
+        template <typename... Ts, typename Func>
+        uint64_t addSystem(Schedule &schedule, Func &&func)
         {
 
-            schedule.systems.insert(func_ptr);
+            static_assert(std::is_class_v<std::decay_t<Func>>,
+                          "func must be a lambda (class type, not function pointer or std::function)");
+            static_assert(std::is_member_function_pointer_v<decltype(&std::decay_t<Func>::operator())>,
+                          "func must define operator(), i.e., must be a lambda or functor");
+
+            static_assert((is_read_or_write<Ts>::value && ...),
+                          "All components must be wrapped in Read<T> or Write<T>!");
+
+            // Unique Lookup Tables for each combination, gets only created once on first call
+            static const auto lookup_write_table = [&]()
+            {
+                std::vector<uint64_t> write(sizeof...(Ts));
+                ((!is_read<Ts>::value ? (write.push_back(getTypeId<Ts>()), true) : false), ...);
+
+                return write;
+            }();
+
+            static const auto lookup_read_table = [&]()
+            {
+                std::vector<uint64_t> read(sizeof...(Ts));
+
+                ((is_read<Ts>::value ? (read.push_back(getTypeId<Ts>()), true) : false), ...);
+
+                return read;
+            }();
+
+            std::function<void(Ecs *)> wrapper = [func](Ecs *ecs)
+            {
+                ecs->forEach<Ts...>(func);
+            };
+
+            uint64_t system_id = getSystemId<Ts...>(func);
+
+            if (system_id + 1 > systems.size())
+            {
+                systems.resize(system_id + 1);
+            }
+
+            systems[system_id] = wrapper;
+
+            schedule.systems.insert(getSystemId<Ts...>(func));
+
+            return getSystemId<Ts...>(func);
         }
 
-        void removeSystem(Schedule &schedule, void (*func_ptr)(Ecs *))
+        void removeSystem(Schedule &schedule, uint64_t system_id)
         {
-            schedule.systems.erase(func_ptr);
+            schedule.systems.erase(system_id);
         }
 
         void runSchedule(Schedule schedule)
         {
-            for (auto &sys : schedule.systems)
+            for (const uint64_t &sys : schedule.systems)
             {
-                sys(this);
+                auto &system = systems[sys];
+                system(this);
             }
         }
 
@@ -403,5 +448,16 @@ namespace vecs
         static inline uint64_t next_resource_id = 0;
 
         std::vector<ResourceBase *> resources = {};
+
+        template <typename Func, typename... Ts>
+        uint64_t getSystemId(Func &&func)
+        {
+            static uint64_t id = next_system_id++;
+            return id;
+        };
+
+        static inline uint64_t next_system_id = 0;
+
+        std::vector<std::function<void(Ecs *)>> systems;
     };
 }
