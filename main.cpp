@@ -25,9 +25,9 @@ void createDummySystems(vecs::Ecs &ecs, vecs::Schedule &schedule)
             
             volatile uint64_t number = 0;
 
-            auto *poss = view.get<vecs::Read<Velocity>>(4);
+            auto *poss = view.get<vecs::Read<Position>>(4);
 
-            poss->value += 3.5f;
+            
 
             number += pos.x; });
     }

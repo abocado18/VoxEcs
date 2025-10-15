@@ -184,7 +184,7 @@ namespace vecs
             template <typename T>
             auto get(Entity e)
             {
-                static_assert((std::is_same_v<T, component_t<Ts>> || ...),
+                static_assert((std::is_same_v<T, Ts> || ...),
                               "Component T is not in this system's query!");
 
                 static_assert((is_read_or_write<T>::value) == true);
