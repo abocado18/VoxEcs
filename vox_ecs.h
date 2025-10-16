@@ -273,14 +273,16 @@ namespace vecs
                 static_assert((std::is_same_v<T, Ts> || ...),
                               "Component T is not in this system's query!");
 
-                static_assert((is_read_or_write<T>::value) == true);
+                static_assert((std::is_same_v<T, Ts> || ...),
+                              "Component T is not in this system's query!");
 
                 using Comp = component_t<T>;
+                Comp *ptr = ecs->getComponent<Comp>(e);
 
                 if constexpr (is_read<T>::value)
-                    return static_cast<const Comp *>(ecs->getComponent<Comp>(e));
+                    return static_cast<const Comp &>(*ptr); // return reference to const
                 else
-                    return ecs->getComponent<Comp>(e);
+                    return *ptr; // return reference for write
             }
 
         private:
@@ -585,17 +587,13 @@ namespace vecs
         template <typename T>
         resource_r<T> getResourceForLoop()
         {
-            auto *resource = getResource<typename unwrapResource<T>::type>();
-
-            return resource;
+            return getResource<typename unwrapResource<T>::type>();
         }
 
         template <typename T>
         lambda_t<T> getComponentForLoop(Entity e)
         {
-            auto *c = getComponent<component_t<T>>(e);
-
-            return *c;
+            return *getComponent<component_t<T>>(e);
 
             // Lambda ensures read write access
         }
@@ -609,7 +607,7 @@ namespace vecs
         }
 
         template <typename T>
-        decltype(auto) getComponentOrResourceForLoop(Entity e)
+        auto getComponentOrResourceForLoop(Entity e) -> decltype(auto)
         {
             if constexpr (is_read_or_write<T>::value)
                 return getComponentForLoop<T>(e);
