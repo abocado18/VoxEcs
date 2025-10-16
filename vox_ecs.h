@@ -585,7 +585,7 @@ namespace vecs
         template <typename T>
         resource_r<T> getResourceForLoop()
         {
-            auto *resource = getResource<unwrapResource<T>::type>();
+            auto *resource = getResource<typename unwrapResource<T>::type>();
 
             return resource;
         }
