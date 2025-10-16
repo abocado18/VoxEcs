@@ -20,16 +20,12 @@ void createDummySystems(vecs::Ecs &ecs, vecs::Schedule &schedule)
 {
     for (size_t i = 0; i < N; i++)
     {
-        ecs.addSystem<vecs::Read<Position>, vecs::Read<Health>>(schedule, [](vecs::Ecs::SystemView<vecs::Read<Position>, vecs::Read<Health>> view, vecs::Entity e, const Position& pos, const Health& h)
+        ecs.addSystem<vecs::Write<Position>, vecs::Read<Health>>(schedule, [](vecs::Ecs::SystemView<vecs::Write<Position>, vecs::Read<Health>> view, vecs::Entity e,  Position& pos, const Health& h)
                                                                  {
             
             volatile uint64_t number = 0;
-
-            auto *poss = view.get<vecs::Read<Position>>(4);
-
-            
-
-            number += pos.x; });
+            number += 1;
+            });
     }
 }
 
@@ -42,7 +38,7 @@ int main()
 
     ecs.insertResource<float>(3.5f);
 
-    constexpr size_t num_entities = 1'000'000;
+    constexpr size_t num_entities = 1'000;
     ;
 
     volatile double sum = 0.0;

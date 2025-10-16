@@ -112,21 +112,107 @@ namespace vecs
     {
     };
 
+    template <typename T>
+    struct is_write : std::false_type
+    {
+    };
+
+    template <typename T>
+    struct is_write<Write<T>> : std::true_type
+    {
+    };
+
+    template <typename T>
+    struct ResMut
+    {
+        using type = T;
+    };
+
+    template <typename T>
+    struct Res
+    {
+        using type = T;
+    };
+
+    template <typename T>
+    struct unwrapResource
+    {
+        using type = T;
+    };
+
+    template <typename T>
+    struct unwrapResource<ResMut<T>>
+    {
+        using type = T;
+    };
+
+    template <typename T>
+    struct unwrapResource<Res<T>>
+    {
+        using type = T;
+    };
+
+    template <typename T>
+    struct resourceRef
+    {
+        using type = typename unwrapResource<T>::type *;
+    };
+
+    template <typename T>
+    struct resourceRef<Res<T>>
+    {
+        using type = const T *;
+    };
+
+    template <typename T>
+    struct resourceRef<ResMut<T>>
+    {
+        using type = T *;
+    };
+
+    template <typename T>
+    using resource_r = typename resourceRef<T>::type;
+
+    template <typename T>
+    struct isMutableResource : std::false_type
+    {
+    };
+
+    template <typename T>
+    struct isMutableResource<ResMut<T>> : std::true_type
+    {
+    };
+
+    template <typename T>
+    struct isConstResource : std::false_type
+    {
+    };
+
+    template <typename T>
+    struct isConstResource<Res<T>> : std::true_type
+    {
+    };
+
     struct SystemWrapper
     {
-        SystemWrapper() : callback({}), read(0), write(0) {};
+        SystemWrapper() : callback({}), c_read(0), c_write(0), r_read(0), r_write(0) {};
 
-        SystemWrapper(std::function<void(Ecs *)> callback, bit::Bitset read, bit::Bitset write)
+        SystemWrapper(std::function<void(Ecs *)> callback, bit::Bitset c_read, bit::Bitset c_write, bit::Bitset r_read, bit::Bitset r_write)
             : callback(callback),
-              read(read),
-              write(write)
+              c_read(c_read),
+              c_write(c_write),
+              r_read(r_read),
+              r_write(r_write)
         {
         }
 
         std::function<void(Ecs *)> callback;
 
-        bit::Bitset read;
-        bit::Bitset write;
+        bit::Bitset c_read;
+        bit::Bitset c_write;
+
+        bit::Bitset r_read;
+        bit::Bitset r_write;
     };
 
     struct SparseSetBase
@@ -255,12 +341,12 @@ namespace vecs
         void forEach(Func &&func)
         {
 
-            static_assert((is_read_or_write<Ts>::value && ...),
-                          "All components must be wrapped in Read<T> or Write<T>!");
+            static_assert(((is_read_or_write<Ts>::value || isConstResource<Ts>::value || isMutableResource<Ts>::value) && ...),
+                          "All components/resources must be wrapped in Read<T> ,Write<T>, Res<T> or ResMut<T>!");
 
             using ComponentTypes = std::tuple<typename unwrap_component<Ts>::type...>;
 
-            size_t dense_sizes[] = {getSparseSet<typename unwrap_component<Ts>::type>()->dense.size()...};
+            size_t dense_sizes[] = {(is_read_or_write<Ts>::value ? getSparseSet<typename unwrap_component<Ts>::type>()->dense.size() : 0)...};
 
             size_t smallest_index = 0;
             size_t smallest_size = dense_sizes[0];
@@ -339,24 +425,42 @@ namespace vecs
             static_assert(std::is_member_function_pointer_v<decltype(&std::decay_t<Func>::operator())>,
                           "func must define operator(), i.e., must be a lambda or functor");
 
-            static_assert((is_read_or_write<Ts>::value && ...),
+            static_assert(((is_read_or_write<Ts>::value || isConstResource<Ts>::value || isMutableResource<Ts>::value) && ...),
                           "All components must be wrapped in Read<T> or Write<T>!");
 
             // Unique Lookup Tables for each combination, gets only created once on first call
-            static const auto lookup_write_table = [&]()
+            static const auto c_lookup_write_table = [&]()
             {
                 bit::Bitset write(sizeof...(Ts));
 
-                ((!is_read<Ts>::value ? (write.setBit(getTypeId<Ts>(), true), true) : false), ...);
+                ((is_write<Ts>::value ? (write.setBit(getTypeId<typename unwrap_component<Ts>::type>(), true), true) : false), ...);
 
                 return write;
             }();
 
-            static const auto lookup_read_table = [&]()
+            static const auto c_lookup_read_table = [&]()
             {
                 bit::Bitset read(sizeof...(Ts));
 
-                ((is_read<Ts>::value ? (read.setBit(getTypeId<Ts>(), true), true) : false), ...);
+                ((is_read<Ts>::value ? (read.setBit(getTypeId<typename unwrap_component<Ts>::type>(), true), true) : false), ...);
+
+                return read;
+            }();
+
+            static const auto r_lookup_write_table = [&]()
+            {
+                bit::Bitset write(sizeof...(Ts));
+
+                ((isMutableResource<Ts>::value ? (write.setBit(getResourceId<typename unwrapResource<Ts>::type>(), true), true) : false), ...);
+
+                return write;
+            }();
+
+            static const auto r_lookup_read_table = [&]()
+            {
+                bit::Bitset read(sizeof...(Ts));
+
+                ((isConstResource<Ts>::value ? (read.setBit(getResourceId<typename unwrapResource<Ts>::type>(), true), true) : false), ...);
 
                 return read;
             }();
@@ -373,7 +477,7 @@ namespace vecs
                 systems.resize(system_id + 1);
             }
 
-            SystemWrapper system(wrapper, lookup_read_table, lookup_write_table);
+            SystemWrapper system(wrapper, c_lookup_read_table, c_lookup_write_table, r_lookup_read_table, r_lookup_write_table);
 
             systems[system_id] = system;
 
@@ -405,7 +509,10 @@ namespace vecs
 
             auto checkConflict = [&schedule](const SystemWrapper &a, const SystemWrapper &b)
             {
-                return ((a.write & b.write).any() || (a.write & b.read).any() || (b.write & a.read).any());
+                bool c_conflict = ((a.c_write & b.c_write).any() || (a.c_write & b.c_read).any() || (b.c_write & a.c_read).any());
+                bool r_conflict = ((a.r_write & b.r_write).any() || (a.r_write & b.r_read).any() || (b.r_write & a.r_read).any());
+
+                return (c_conflict || r_conflict);
             };
 
             std::vector<uint64_t> system_ids(schedule.systems.begin(), schedule.systems.end());
@@ -475,12 +582,40 @@ namespace vecs
     private:
         thread_pool::ThreadPool pool;
 
+        template <typename T>
+        resource_r<T> getResourceForLoop()
+        {
+            auto *resource = getResource<unwrapResource<T>::type>();
+
+            return resource;
+        }
+
+        template <typename T>
+        lambda_t<T> getComponentForLoop(Entity e)
+        {
+            auto *c = getComponent<component_t<T>>(e);
+
+            return *c;
+
+            // Lambda ensures read write access
+        }
+
         template <typename... Ts>
         bool hasComponents(Entity e)
         {
             return (... && (getSparseSet<component_t<Ts>>() &&
                             e < getSparseSet<component_t<Ts>>()->sparse.size() &&
                             getSparseSet<component_t<Ts>>()->sparse[e] != NO_ENTITY));
+        }
+
+        template <typename T>
+        decltype(auto) getComponentOrResourceForLoop(Entity e)
+        {
+            if constexpr (is_read_or_write<T>::value)
+                return getComponentForLoop<T>(e);
+
+            else
+                return getResourceForLoop<T>();
         }
 
         template <typename smallest_T, typename... Ts, typename Func>
@@ -494,22 +629,12 @@ namespace vecs
             {
                 Entity e = smallest_set->dense_entities[i];
 
-                if constexpr (sizeof...(Ts) > 1) // Smallest set also in Ts
-                {
-                    if (hasComponents<Ts...>(e) == false)
-                        continue;
+                if (hasComponents<Ts...>(e) == false)
+                    continue;
 
-                    SystemView<Ts...> view(this);
+                SystemView<Ts...> view(this);
 
-                    func(view, e, *getComponent<component_t<Ts>>(e)...);
-                }
-                else
-                {
-
-                    SystemView<smallest_T> view(this);
-
-                    func(view, e, *getComponent<component_t<smallest_T>>(e));
-                }
+                func(view, e, getComponentOrResourceForLoop<Ts>(e)...);
             }
         }
 
