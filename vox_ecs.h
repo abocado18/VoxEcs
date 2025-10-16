@@ -12,6 +12,8 @@
 #include "dynamic_bitset.h"
 #include "thread_pool.h"
 
+#include <cassert>
+
 namespace vecs
 {
     using Entity = uint64_t;
@@ -193,6 +195,27 @@ namespace vecs
     {
     };
 
+    template <typename...>
+    struct Filter;
+
+    template <>
+    struct Filter<>
+    {
+        using type = std::tuple<>;
+    };
+
+    /// @brief Uses Recursion to find Components in Read/Write
+    /// @tparam T
+    /// @tparam ...Rest
+    template <typename T, typename... Rest>
+    struct Filter<T, Rest...>
+    {
+        using type = std::conditional_t<
+            is_read_or_write<T>::value,
+            decltype(std::tuple_cat(std::tuple<T>{}, typename Filter<Rest...>::type{})),
+            typename Filter<Rest...>::type>;
+    };
+
     struct SystemWrapper
     {
         SystemWrapper() : callback({}), c_read(0), c_write(0), r_read(0), r_write(0) {};
@@ -268,13 +291,12 @@ namespace vecs
             SystemView(Ecs *ecs) : ecs(ecs) {};
 
             template <typename T>
-            auto get(Entity e)
+            auto getComponent(Entity e)
             {
                 static_assert((std::is_same_v<T, Ts> || ...),
                               "Component T is not in this system's query!");
 
-                static_assert((std::is_same_v<T, Ts> || ...),
-                              "Component T is not in this system's query!");
+                static_assert(is_read_or_write<T>::value, "Must be a component in Read / Write Wrapper for Multithreading");
 
                 using Comp = component_t<T>;
                 Comp *ptr = ecs->getComponent<Comp>(e);
@@ -288,6 +310,25 @@ namespace vecs
         private:
             Ecs *ecs;
         };
+
+        // Static Systemhelper to avoid dependent template and get the correct dependent
+        template <typename T, typename... Ts>
+        static inline decltype(auto) get(SystemView<Ts...> &view, Entity e)
+        {
+
+            using Wrapper = std::conditional_t<
+                (std::is_same_v<Read<T>, Ts> || ...),
+                Read<T>,
+                std::conditional_t<
+                    (std::is_same_v<Write<T>, Ts> || ...),
+                    Write<T>,
+                    void // static_assert will catch this
+                    >>;
+
+            static_assert(!std::is_void_v<Wrapper>, "Type T not found in SystemView or a Resource");
+
+            return view.template getComponent<Wrapper>(e);
+        }
 
         template <typename T>
         void addComponent(Entity e, T component)
@@ -346,14 +387,15 @@ namespace vecs
             static_assert(((is_read_or_write<Ts>::value || isConstResource<Ts>::value || isMutableResource<Ts>::value) && ...),
                           "All components/resources must be wrapped in Read<T> ,Write<T>, Res<T> or ResMut<T>!");
 
-            using ComponentTypes = std::tuple<typename unwrap_component<Ts>::type...>;
+            uint64_t dense_size_counter = 0;
 
+            dense_size_counter = ((is_read_or_write<Ts>::value ? dense_size_counter += 1 : dense_size_counter), ...);
             size_t dense_sizes[] = {(is_read_or_write<Ts>::value ? getSparseSet<typename unwrap_component<Ts>::type>()->dense.size() : 0)...};
 
             size_t smallest_index = 0;
             size_t smallest_size = dense_sizes[0];
 
-            for (size_t i = 0; i < sizeof...(Ts); i++)
+            for (size_t i = 0; i < dense_size_counter; i++)
             {
                 if (dense_sizes[i] < smallest_size)
                 {
@@ -423,9 +465,6 @@ namespace vecs
         template <typename... Ts, typename Func>
         uint64_t addSystem(Schedule &schedule, Func &&func)
         {
-
-            static_assert(std::is_member_function_pointer_v<decltype(&std::decay_t<Func>::operator())>,
-                          "func must define operator(), i.e., must be a lambda or functor");
 
             static_assert(((is_read_or_write<Ts>::value || isConstResource<Ts>::value || isMutableResource<Ts>::value) && ...),
                           "All components must be wrapped in Read<T> or Write<T>!");
@@ -601,9 +640,24 @@ namespace vecs
         template <typename... Ts>
         bool hasComponents(Entity e)
         {
-            return (... && (getSparseSet<component_t<Ts>>() &&
-                            e < getSparseSet<component_t<Ts>>()->sparse.size() &&
-                            getSparseSet<component_t<Ts>>()->sparse[e] != NO_ENTITY));
+
+            return (... && (checkIfEntityHasComponent<Ts>(e)));
+        }
+
+        template <typename T>
+        bool checkIfEntityHasComponent(Entity e)
+        {
+            if constexpr (isConstResource<T>::value || isMutableResource<T>::value)
+            {
+                // Resources are global and return always true
+                return true;
+            }
+            else
+            {
+                return getSparseSet<component_t<T>>() &&
+                       e < getSparseSet<component_t<T>>()->sparse.size() &&
+                       getSparseSet<component_t<T>>()->sparse[e] != NO_ENTITY;
+            }
         }
 
         template <typename T>
@@ -619,6 +673,8 @@ namespace vecs
         template <typename smallest_T, typename... Ts, typename Func>
         void iterateSparseSet(SparseSet<smallest_T> *smallest_set, Func &&func)
         {
+
+            static_assert(is_read_or_write<smallest_T>::value == false, "No Wrapper allowed");
 
             if (smallest_set == nullptr)
                 return;

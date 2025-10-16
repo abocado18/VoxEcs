@@ -15,18 +15,28 @@ struct Health
     float value;
 };
 
+
+
+
+
+
 template <size_t N>
 void createDummySystems(vecs::Ecs &ecs, vecs::Schedule &schedule)
 {
     for (size_t i = 0; i < N; i++)
     {
-        ecs.addSystem<vecs::Write<Position>, vecs::ResMut<float>>(schedule, [](vecs::Ecs::SystemView<vecs::Write<Position>, vecs::Read<Health>, vecs::ResMut<float>> view, vecs::Entity e,  Position& pos, const Health& h, float *f)
-                                                                 {
+        ecs.addSystem<vecs::Read<Position>, vecs::ResMut<float>>(schedule, [](auto view, vecs::Entity e, const Position &pos, float *f)
+                                             {
             
             volatile uint64_t number = 0;
-            pos.x += 3.5f;
-            *f += 1.f;
-            number++;
+
+
+            const auto &p = vecs::Ecs::get<Position>(view, 5);
+            
+            *f = p.x;
+
+                                 
+          
             });
     }
 }
@@ -40,7 +50,7 @@ int main()
 
     ecs.insertResource<float>(3.5f);
 
-    constexpr size_t num_entities = 1'0;
+    constexpr size_t num_entities = 1'000'000;
     ;
 
     volatile double sum = 0.0;
@@ -58,7 +68,6 @@ int main()
     constexpr size_t num_systems = 650;
 
     vecs::Schedule Update;
-    
 
     createDummySystems<num_systems>(ecs, Update);
 
@@ -73,7 +82,7 @@ int main()
 
         std::cout << "Duration for single is: " << duration.count() << "microseconds\n";
 
-        std::cout << ecs.getComponent<Position>(0)->x << "\n";
+        
     }
 
     {
@@ -87,6 +96,8 @@ int main()
 
         std::cout << "Duration for paralell is: " << duration.count() << "microseconds\n";
 
-        std::cout << ecs.getComponent<Position>(0)->x << "\n";
+        
     }
+
+    std::cout << *ecs.getResource<float>();
 }
