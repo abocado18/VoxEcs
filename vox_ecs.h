@@ -195,26 +195,7 @@ namespace vecs
     {
     };
 
-    template <typename...>
-    struct Filter;
-
-    template <>
-    struct Filter<>
-    {
-        using type = std::tuple<>;
-    };
-
-    /// @brief Uses Recursion to find Components in Read/Write
-    /// @tparam T
-    /// @tparam ...Rest
-    template <typename T, typename... Rest>
-    struct Filter<T, Rest...>
-    {
-        using type = std::conditional_t<
-            is_read_or_write<T>::value,
-            decltype(std::tuple_cat(std::tuple<T>{}, typename Filter<Rest...>::type{})),
-            typename Filter<Rest...>::type>;
-    };
+    
 
     struct SystemWrapper
     {
