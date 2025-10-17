@@ -420,7 +420,7 @@ namespace vecs
             size_t count = 0;
 
             ((count++ == smallest_index
-                  ? (iterateSparseSet<typename unwrap_component<Ts>::type, Ts...>(
+                  ? (iterateSparseSet<Ts, Ts...>(
                          getSparseSet<typename unwrap_component<Ts>::type>(), func),
                      true)
                   : false) ||
@@ -709,15 +709,22 @@ namespace vecs
         }
 
         template <typename smallest_T, typename... Ts, typename Func>
-        void iterateSparseSet(SparseSet<smallest_T> *smallest_set, Func &&func)
+        void iterateSparseSet(SparseSet<component_t<smallest_T>> *smallest_set, Func &&func)
         {
 
-            static_assert(is_read_or_write<smallest_T>::value == false, "No Wrapper allowed");
+            // smallest T is still in Wrapper
+
+
+            //Ensure that it is wrapped in either Component or Resource Wrapper
+            static_assert(is_read_or_write<smallest_T>::value);
+            static_assert(((is_read_or_write<Ts>::value || isMutableResource<Ts>::value || isConstResource<Ts>::value) && ...));
 
             if (smallest_set == nullptr)
                 return;
 
             SystemView<Ts...> view(this);
+
+            SparseSetBase *spar_sets for components = 
 
             for (size_t i = 0; i < smallest_set->dense.size(); i++)
             {
