@@ -15,29 +15,18 @@ struct Health
     float value;
 };
 
-
-
-
-
-
 template <size_t N>
 void createDummySystems(vecs::Ecs &ecs, vecs::Schedule &schedule)
 {
     for (size_t i = 0; i < N; i++)
     {
-        ecs.addSystem<vecs::Read<Position>, vecs::ResMut<float>>(schedule, [](auto view, vecs::Entity e, const Position &pos, float *f)
-                                             {
-            
-            volatile uint64_t number = 0;
+        ecs.addSystem<vecs::Read<Position>, vecs::Res<float>>(schedule, [](auto view, vecs::Entity e, const Position &pos, const float *f)
+                                                              {
+                                                                  volatile uint64_t number = 0;
 
+                                                                  const auto *p = vecs::Ecs::get<Position>(view, 5);
 
-            const auto &p = vecs::Ecs::get<Position>(view, 5);
-            
-            *f = p.x;
-
-                                 
-          
-            });
+                                                                  number += *f; });
     }
 }
 
@@ -50,7 +39,9 @@ int main()
 
     ecs.insertResource<float>(3.5f);
 
-    constexpr size_t num_entities = 1'000'000;
+    
+
+    constexpr size_t num_entities = 1'000;
     ;
 
     volatile double sum = 0.0;
@@ -65,7 +56,8 @@ int main()
             ecs.addComponent<Health>(e, Health{100.0f});
     }
 
-    constexpr size_t num_systems = 650;
+
+    constexpr size_t num_systems = 250;
 
     vecs::Schedule Update;
 
@@ -81,8 +73,6 @@ int main()
         std::chrono::duration<double, std::micro> duration = end - start;
 
         std::cout << "Duration for single is: " << duration.count() << "microseconds\n";
-
-        
     }
 
     {
@@ -95,9 +85,7 @@ int main()
         std::chrono::duration<double, std::micro> duration = end - start;
 
         std::cout << "Duration for paralell is: " << duration.count() << "microseconds\n";
-
-        
     }
 
-    std::cout << *ecs.getResource<float>();
+  
 }
