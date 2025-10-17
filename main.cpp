@@ -1,91 +1,61 @@
 #include "vox_ecs.h"
-#include <chrono>
-#include <iostream>
 
 struct Position
 {
-    float x, y, z;
+    float x;
+    float y;
 };
+
 struct Velocity
 {
-    float x, y, z;
-};
-struct Health
-{
-    float value;
+    float dx;
+    float dy;
 };
 
-template <size_t N>
-void createDummySystems(vecs::Ecs &ecs, vecs::Schedule &schedule)
+void update(vecs::Ecs &ecs)
 {
-    for (size_t i = 0; i < N; i++)
-    {
-        ecs.addSystem<vecs::Read<Position>, vecs::Res<float>>(schedule, [](auto view, vecs::Entity e, const Position &pos, const float *f)
-                                                              {
-                                                                  volatile uint64_t number = 0;
 
-                                                                  const auto *p = vecs::Ecs::get<Position>(view, 5);
+    // Add to Schedule
+    vecs::Schedule Update;
 
-                                                                  number += *f; });
-    }
+    ecs.addSystem<vecs::Write<Position>, vecs::Read<Velocity>>(Update, [](auto view, vecs::Entity e, Position &p, const Velocity &v)
+                                                               {
+                                                                   // Gets executed for each entity with matching components
+                                                                   p.x += v.dx;
+                                                                   p.y += v.dy; });
+
+    // Run Systems Singlethreaded
+    ecs.runSchedule(Update);
+
+    // RUn Systems multithreaded
+    ecs.runScheduleParallel(Update);
+
+    // Its possible to run a custom system outside of a schedule,
+
+    ecs.forEach<vecs::Write<Position>, vecs::Read<Velocity>>([](auto view, vecs::Entity e, Position &p, const Velocity &v)
+
+                                                             {
+        //Gets executed for each entity with matching components
+        p.x += v.dx;
+        p.y += v.dy; });
 }
 
 int main()
 {
 
-    using namespace vecs;
-
     vecs::Ecs ecs;
 
-    ecs.insertResource<float>(3.5f);
-
-    
-
-    constexpr size_t num_entities = 1'000;
-    ;
-
-    volatile double sum = 0.0;
-    // Create entities and add components
-    for (size_t i = 0; i < num_entities; ++i)
+    for (auto i = 0u; i < 1000u; i++)
     {
-        auto e = ecs.createEntity();
-        ecs.addComponent<Position>(e, Position{float(i), float(i), float(i)});
+        const auto entity = ecs.createEntity();
+
+        ecs.addComponent<Position>(entity, {i * 1.f, i * 1.f});
+
         if (i % 2 == 0)
-            ecs.addComponent<Velocity>(e, Velocity{0.1f, 0.2f, 0.3f});
-        if (i % 4 == 0)
-            ecs.addComponent<Health>(e, Health{100.0f});
+            ecs.addComponent<Velocity>(entity, {i * 0.1f, i * 0.1f});
     }
 
+    update(ecs);
 
-    constexpr size_t num_systems = 250;
-
-    vecs::Schedule Update;
-
-    createDummySystems<num_systems>(ecs, Update);
-
-    {
-        auto start = std::chrono::high_resolution_clock::now();
-
-        ecs.runSchedule(Update);
-
-        auto end = std::chrono::high_resolution_clock::now();
-
-        std::chrono::duration<double, std::micro> duration = end - start;
-
-        std::cout << "Duration for single is: " << duration.count() << "microseconds\n";
-    }
-
-    {
-        auto start = std::chrono::high_resolution_clock::now();
-
-        ecs.runScheduleParallel(Update);
-
-        auto end = std::chrono::high_resolution_clock::now();
-
-        std::chrono::duration<double, std::micro> duration = end - start;
-
-        std::cout << "Duration for paralell is: " << duration.count() << "microseconds\n";
-    }
-
-  
+    return 0;
 }
