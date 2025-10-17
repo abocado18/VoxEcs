@@ -1,2 +1,2 @@
 # VoxEcs
-A simple ecs system for my projects
+A simple sparse set ecs system for my projects with multithreading support
