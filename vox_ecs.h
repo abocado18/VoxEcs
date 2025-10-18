@@ -16,8 +16,8 @@
 
 namespace vecs
 {
-    using Entity = uint64_t;
-    constexpr Entity NO_ENTITY = UINT64_MAX;
+    using Entity = uint32_t;
+    constexpr Entity NO_ENTITY = UINT32_MAX;
 
     class Ecs; // Forward Decl
 
@@ -27,7 +27,7 @@ namespace vecs
         explicit Schedule() {};
         ~Schedule() = default;
 
-        std::unordered_set<uint64_t> systems;
+        std::unordered_set<uint32_t> systems;
     };
 
     template <typename T>
@@ -195,6 +195,27 @@ namespace vecs
     {
     };
 
+    template <typename T>
+    struct isResource : std::false_type
+    {
+    };
+
+    template <typename T>
+    struct isResource<Res<T>> : std::true_type
+    {
+    };
+
+    template <typename T>
+    struct isResource<ResMut<T>> : std::true_type
+    {
+    };
+
+    /// @brief Create a tuple with only types that passes a condition
+    /// @tparam ...Ts
+    template <template <typename> class Cond, typename... Ts>
+    using filtered_tuple = decltype(std::tuple_cat(
+        std::conditional_t<Cond<Ts>::value, std::tuple<Ts>, std::tuple<>>{}...));
+
     struct SystemWrapper
     {
         SystemWrapper() : callback({}), c_read(0), c_write(0), r_read(0), r_write(0) {};
@@ -230,7 +251,7 @@ namespace vecs
 
         std::vector<T> dense;
         std::vector<Entity> dense_entities;
-        std::vector<uint64_t> sparse;
+        std::vector<uint32_t> sparse;
     };
 
     using removeSparseSet = void (*)(SparseSetBase *, Entity);
@@ -242,7 +263,7 @@ namespace vecs
         {
             SparseSet<T> *set = static_cast<SparseSet<T> *>(base);
 
-            uint64_t component_index = set->sparse[e];
+            uint32_t component_index = set->sparse[e];
 
             if (component_index == NO_ENTITY)
                 return;
@@ -266,7 +287,7 @@ namespace vecs
     };
 
     template <typename T>
-    struct Resource : ResourceBase
+    struct ResourceData : ResourceBase
     {
         T data;
     };
@@ -295,28 +316,107 @@ namespace vecs
         template <typename... Ts>
         class SystemView
         {
+
+            friend class Ecs;
+
         public:
-            SystemView(Ecs *ecs) : ecs(ecs) {};
+            SystemView(Ecs *ecs) : ecs(ecs)
+
+            {
+                static_assert(((is_read_or_write<Ts>::value || isResource<Ts>::value) && ...), "All members must be in Wrappers");
+            };
 
             template <typename T>
-            auto getComponent(Entity e)
+            auto &getComponent(Entity e)
             {
                 static_assert((std::is_same_v<T, Ts> || ...),
                               "Component T is not in this system's query!");
 
                 static_assert(is_read_or_write<T>::value, "Must be a component in Read / Write Wrapper for Multithreading");
 
-                using Comp = component_t<T>;
-                Comp *ptr = ecs->getComponent<Comp>(e);
+                static SparseSet<component_t<T>> &sparse_set = ecs->getOrCreateSparseSet<component_t<T>>();
 
                 if constexpr (is_read<T>::value)
-                    return static_cast<const Comp *>(ptr); // return reference to const
+                {
+
+                    return static_cast<const component_t<T> &>(sparse_set.dense[sparse_set.sparse.at(e)]);
+                }
                 else
-                    return *ptr; // return reference for write
+                {
+                    return static_cast<component_t<T> &>(sparse_set.dense[sparse_set.sparse.at(e)]);
+                }
             }
 
         private:
             Ecs *ecs;
+
+            template <typename T>
+            inline decltype(auto) getSystemArgument(Entity e)
+            {
+                static_assert(is_read_or_write<T>::value || isResource<T>::value, "Must be a resource or component");
+
+                if constexpr (is_read_or_write<T>::value)
+                {
+                    // Is Component
+
+                    // Static so each Component SparseSet for each SystemView is only loaded once, then cached
+                    static SparseSet<component_t<T>> &sparse_set = ecs->getOrCreateSparseSet<component_t<T>>();
+
+                    if constexpr (is_read<T>::value)
+                    {
+                        // Assumes check for Entity happened before
+                        return static_cast<const component_t<T> &>(sparse_set.dense[sparse_set.sparse[e]]);
+                    }
+                    else
+                    {
+                        return static_cast<component_t<T> &>(sparse_set.dense[sparse_set.sparse[e]]);
+                    }
+                }
+                else
+                {
+
+                    using Inner = typename unwrapResource<T>::type;
+
+                    static uint32_t resource_id = ecs->getResourceId<Inner>();
+
+                    if (resource_id >= ecs->resources.size())
+                        ecs->resources.resize(resource_id + 1, nullptr);
+
+                    ResourceData<Inner> *data = static_cast<ResourceData<Inner> *>(ecs->resources[resource_id]);
+
+                    if constexpr (isMutableResource<T>::value)
+                    {
+                        return static_cast<Inner &>(data->data);
+                    }
+                    else
+                    {
+
+                        return static_cast<const Inner &>(data->data);
+                    }
+                }
+            }
+
+            inline bool hasAllComponents(Entity e)
+            {
+
+                static_assert(((is_read_or_write<Ts>::value || isResource<Ts>::value) && ...), "Must be a resource or component");
+
+                return (... && hasComponent<Ts>(e));
+            }
+
+            template <typename T>
+            inline bool hasComponent(Entity e)
+            {
+                if constexpr (is_read_or_write<T>::value)
+                {
+                    static SparseSet<component_t<T>> &sparse_set = ecs->getOrCreateSparseSet<component_t<T>>();
+                    return (e < sparse_set.sparse.size() && sparse_set.sparse[e] != NO_ENTITY);
+                }
+                else
+                {
+                    return true;
+                }
+            }
         };
 
         // Static Systemhelper to avoid dependent template and get the correct dependent
@@ -330,8 +430,7 @@ namespace vecs
                 std::conditional_t<
                     (std::is_same_v<Write<T>, Ts> || ...),
                     Write<T>,
-                    void // static_assert will catch this
-                    >>;
+                    void>>;
 
             static_assert(!std::is_void_v<Wrapper>, "Type T not found in SystemView or is a Resource");
 
@@ -352,7 +451,7 @@ namespace vecs
             set.dense.push_back(component);
             set.dense_entities.push_back(e);
 
-            uint64_t dense_index = set.dense.size() - 1;
+            uint32_t dense_index = set.dense.size() - 1;
 
             if (e >= set.sparse.size())
             {
@@ -361,34 +460,34 @@ namespace vecs
 
             set.sparse[e] = dense_index;
 
-            uint64_t comp_index = getTypeId<T>();
+            uint32_t comp_index = getTypeId<T>();
 
             if (e >= entity_what_components.size())
             {
-                entity_what_components.resize(e + 1, bit::Bitset(0));
+                entity_what_components.resize(e + 1, {});
             }
 
-            entity_what_components[e].setBit(comp_index, true);
+            entity_what_components[e].insert(comp_index);
         }
 
         template <typename T>
         void removeComponent(Entity e)
         {
 
-            SparseSet<T> *set = getSparseSet<T>();
+            SparseSet<T> *set = getOrCreateSparseSet<T>();
 
             if (set == nullptr)
                 return;
 
-            uint64_t comp_index = getTypeId<T>();
+            uint32_t comp_index = getTypeId<T>();
 
             if (e >= entity_what_components.size())
                 return; // Entity has not components yet
 
-            if (!entity_what_components[e].checkBit(comp_index))
+            if (entity_what_components[e].count(comp_index) == 0)
                 return; // Does not have component
 
-            entity_what_components[e].setBit(comp_index, false);
+            entity_what_components[e].erase(comp_index);
 
             set->remove(set, e);
         }
@@ -400,15 +499,16 @@ namespace vecs
             static_assert(((is_read_or_write<Ts>::value || isConstResource<Ts>::value || isMutableResource<Ts>::value) && ...),
                           "All components/resources must be wrapped in Read<T> ,Write<T>, Res<T> or ResMut<T>!");
 
-            uint64_t dense_size_counter = 0;
+            uint32_t dense_size_counter = 0;
 
-            dense_size_counter = ((is_read_or_write<Ts>::value ? dense_size_counter += 1 : dense_size_counter), ...);
-            size_t dense_sizes[] = {(is_read_or_write<Ts>::value ? getSparseSet<typename unwrap_component<Ts>::type>()->dense.size() : 0)...};
+            size_t dense_sizes[] = {(is_read_or_write<Ts>::value ? getOrCreateSparseSet<component_t<Ts>>().dense.size() : SIZE_MAX)...};
 
             size_t smallest_index = 0;
             size_t smallest_size = dense_sizes[0];
 
-            for (size_t i = 0; i < dense_size_counter; i++)
+            auto data_tuple = std::tuple<Ts...>();
+
+            for (size_t i = 0; i < sizeof...(Ts); i++)
             {
                 if (dense_sizes[i] < smallest_size)
                 {
@@ -419,38 +519,46 @@ namespace vecs
 
             size_t count = 0;
 
-            ((count++ == smallest_index
-                  ? (iterateSparseSet<Ts, Ts...>(
-                         getSparseSet<typename unwrap_component<Ts>::type>(), func),
-                     true)
-                  : false) ||
-             ...);
+            (
+                [&]()
+                {
+                    if constexpr (is_read_or_write<Ts>::value)
+                    {
+                        if (count++ == smallest_index)
+                        {
+                            iterateSparseSet<Ts, Ts...>(
+                                &getOrCreateSparseSet<component_t<Ts>>(), func);
+                        }
+                    }
+                }(),
+                ...);
         }
 
         Entity createEntity()
         {
             static Entity e = 0;
+
             return e++;
         }
 
         template <typename T>
         void insertResource(T data)
         {
-            uint64_t id = getResourceId<T>();
+            uint32_t id = getResourceId<T>();
 
             if (id >= resources.size())
             {
                 resources.resize(id + 1, nullptr);
-                resources[id] = new Resource<T>();
+                resources[id] = new ResourceData<T>();
             }
 
-            Resource<T> &ref = *static_cast<Resource<T> *>(resources[id]);
+            ResourceData<T> &ref = *static_cast<ResourceData<T> *>(resources[id]);
 
             ref.data = data;
         }
 
         template <typename... Ts, typename Func>
-        uint64_t addSystem(Schedule &schedule, Func &&func)
+        uint32_t addSystem(Schedule &schedule, Func &&func)
         {
 
             static_assert(((is_read_or_write<Ts>::value || isConstResource<Ts>::value || isMutableResource<Ts>::value) && ...),
@@ -498,7 +606,7 @@ namespace vecs
                 ecs->forEach<Ts...>(func);
             };
 
-            uint64_t system_id = getNextSystemId();
+            uint32_t system_id = getNextSystemId();
 
             if (system_id >= systems.size())
             {
@@ -514,7 +622,7 @@ namespace vecs
             return system_id;
         }
 
-        void removeSystem(Schedule &schedule, uint64_t system_id)
+        void removeSystem(Schedule &schedule, uint32_t system_id)
         {
             schedule.systems.erase(system_id);
         }
@@ -522,9 +630,9 @@ namespace vecs
         void runSchedule(Schedule schedule)
         {
 
-            std::vector<uint64_t> system_ids(schedule.systems.begin(), schedule.systems.end());
+            std::vector<uint32_t> system_ids(schedule.systems.begin(), schedule.systems.end());
 
-            for (uint64_t system_id : schedule.systems)
+            for (uint32_t system_id : schedule.systems)
             {
                 SystemWrapper &current = systems[system_id];
 
@@ -543,11 +651,11 @@ namespace vecs
                 return (c_conflict || r_conflict);
             };
 
-            std::vector<uint64_t> system_ids(schedule.systems.begin(), schedule.systems.end());
+            std::vector<uint32_t> system_ids(schedule.systems.begin(), schedule.systems.end());
 
             std::vector<std::vector<SystemWrapper *>> batches = {};
 
-            for (uint64_t system_id : system_ids)
+            for (uint32_t system_id : system_ids)
             {
                 SystemWrapper &current = systems[system_id];
                 bool added_to_batch = false;
@@ -613,23 +721,14 @@ namespace vecs
             if (e >= entity_what_components.size())
                 return; // Has no components or does not exist
 
-            bit::Bitset &component_set = entity_what_components[e];
-
-            for (size_t i = 0; i < component_set.getNumberOfBits(); i++)
+            for (size_t i = 0; i < entity_what_components[e].size(); i++)
             {
-                if (component_set.checkBit(i))
-                {
+                SparseSetBase *set = sets[i];
 
-                    if (i >= sets.size())
-                        continue; // Should always pass, but for safety
-
-                    SparseSetBase *set = sets[i];
-
-                    set->remove(set, e);
-
-                    component_set.setBit(i, false);
-                }
+                set->remove(set, e);
             }
+
+            entity_what_components[e].clear();
         };
 
     private:
@@ -638,25 +737,25 @@ namespace vecs
         template <typename T>
         T *getComponent(Entity e)
         {
-            SparseSet<T> *set = getSparseSet<T>();
+            SparseSet<T> set = getOrCreateSparseSet<T>();
 
-            if (set == nullptr || e >= set->sparse.size() || set->sparse[e] == NO_ENTITY)
+            if (e >= set.sparse.size() || set.sparse[e] == NO_ENTITY)
                 return nullptr;
 
-            return &set->dense[set->sparse[e]];
+            return &set.dense[set.sparse[e]];
         }
 
         template <typename T>
         T *getResource()
         {
-            uint64_t id = getResourceId<T>();
+            uint32_t id = getResourceId<T>();
 
             if (id >= resources.size())
             {
                 return nullptr;
             }
 
-            Resource<T> *resource = static_cast<Resource<T> *>(resources[id]);
+            ResourceData<T> *resource = static_cast<ResourceData<T> *>(resources[id]);
 
             return &resource->data;
         }
@@ -692,9 +791,8 @@ namespace vecs
             }
             else
             {
-                return getSparseSet<component_t<T>>() &&
-                       e < getSparseSet<component_t<T>>()->sparse.size() &&
-                       getSparseSet<component_t<T>>()->sparse[e] != NO_ENTITY;
+                return e < getOrCreateSparseSet<component_t<T>>().sparse.size() &&
+                       getOrCreateSparseSet<component_t<T>>().sparse[e] != NO_ENTITY;
             }
         }
 
@@ -709,13 +807,12 @@ namespace vecs
         }
 
         template <typename smallest_T, typename... Ts, typename Func>
-        void iterateSparseSet(SparseSet<component_t<smallest_T>> *smallest_set, Func &&func)
+        inline void iterateSparseSet(SparseSet<component_t<smallest_T>> *smallest_set, Func &&func) noexcept
         {
 
             // smallest T is still in Wrapper
 
-
-            //Ensure that it is wrapped in either Component or Resource Wrapper
+            // Ensure that it is wrapped in either Component or Resource Wrapper
             static_assert(is_read_or_write<smallest_T>::value);
             static_assert(((is_read_or_write<Ts>::value || isMutableResource<Ts>::value || isConstResource<Ts>::value) && ...));
 
@@ -724,23 +821,22 @@ namespace vecs
 
             SystemView<Ts...> view(this);
 
-            SparseSetBase *spar_sets for components = 
-
-            for (size_t i = 0; i < smallest_set->dense.size(); i++)
+            size_t smallest_size = smallest_set->dense.size();
+            for (size_t i = 0; i < smallest_size; i++)
             {
                 Entity e = smallest_set->dense_entities[i];
 
-                if (hasComponents<Ts...>(e) == false)
+                if (!view.hasAllComponents(e))
                     continue;
 
-                func(view, e, getComponentOrResourceForLoop<Ts>(e)...);
+                func(view, e, view.template getSystemArgument<Ts>(e)...);
             }
         }
 
         template <typename T>
         SparseSet<T> &getOrCreateSparseSet()
         {
-            uint64_t type_id = getTypeId<T>();
+            uint32_t type_id = getTypeId<T>();
 
             if (type_id >= sets.size())
                 sets.resize(type_id + 1, nullptr);
@@ -755,50 +851,36 @@ namespace vecs
         }
 
         template <typename T>
-        SparseSet<T> *getSparseSet()
+        inline static uint32_t getTypeId() noexcept
         {
-            uint64_t type_id = getTypeId<T>();
-
-            if (type_id >= sets.size())
-                return nullptr;
-
-            if (sets[type_id] == nullptr)
-                return nullptr;
-
-            return static_cast<SparseSet<T> *>(sets[type_id]);
-        }
-
-        template <typename T>
-        uint64_t getTypeId()
-        {
-            static uint64_t id = next_id++; // Static = Unique per Component Type
+            static const uint32_t id = next_id++;
             return id;
         }
 
-        static inline uint64_t next_id = 0;
+        static inline uint32_t next_id = 0;
 
         std::vector<SparseSetBase *> sets = {};
 
         template <typename T>
-        uint64_t getResourceId()
+        uint32_t getResourceId()
         {
-            static uint64_t id = next_resource_id++; // Static = Unique per Resource Type
+            static uint32_t id = next_resource_id++; // Static = Unique per Resource Type
             return id;
         }
 
-        static inline uint64_t next_resource_id = 0;
+        static inline uint32_t next_resource_id = 0;
 
         std::vector<ResourceBase *> resources = {};
 
-        inline uint64_t getNextSystemId()
+        inline uint32_t getNextSystemId()
         {
-            static uint64_t next_system_id = 0;
-            uint64_t id = next_system_id++;
+            static uint32_t next_system_id = 0;
+            uint32_t id = next_system_id++;
             return id;
         };
 
         std::vector<SystemWrapper> systems;
 
-        std::vector<bit::Bitset> entity_what_components; // Caches what entity has which components
+        std::vector<std::unordered_set<uint32_t>> entity_what_components; // Caches what entity has which components
     };
 }
