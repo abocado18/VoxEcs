@@ -859,7 +859,13 @@ namespace vecs
                 system_views[view_id] = new SystemView<smallest_T, Ts...>(this);
             }
 
-            auto *view = static_cast<SystemView<smallest_T, Ts...> *>(system_views[view_id]);
+            SystemView<smallest_T, Ts...> *view = static_cast<SystemView<smallest_T, Ts...> *>(system_views[view_id]);
+
+            if (view->is_dirty)
+            {
+                view->findAllValidEntities();
+                view->is_dirty = false;
+            }
 
             for (Entity e : view->valid_entities)
             {
