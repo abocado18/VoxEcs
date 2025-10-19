@@ -54,6 +54,9 @@ void update(vecs::Ecs &ecs)
 
                                                                                   std::cout << "Pos";
 
+
+                                                                                  vecs::Ecs::get<Position>(view, 0);
+
                                                                                   p.x += v.dx;
                                                                                   p.y += v.dy; });
 
@@ -71,7 +74,7 @@ int main()
 
     ecs.insertResource<Time>({0.2f});
 
-    constexpr uint NUM_E = 1'000'000u;
+    constexpr uint NUM_E = 1'0u;
 
     for (auto i = 0u; i < NUM_E; i++)
     {

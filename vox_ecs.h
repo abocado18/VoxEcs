@@ -319,7 +319,7 @@ namespace vecs
             bool is_dirty = false;
         };
 
-        template <typename... Ts>
+        template <typename smallest_T, typename... Ts>
         class SystemView : SystemViewBase
         {
 
@@ -330,6 +330,10 @@ namespace vecs
 
             {
                 static_assert(((is_read_or_write<Ts>::value || isResource<Ts>::value) && ...), "All members must be in Wrappers");
+
+                findAllValidEntities();
+
+                is_dirty = false;
             };
 
             template <typename T>
@@ -355,6 +359,8 @@ namespace vecs
 
         private:
             Ecs *ecs;
+
+            std::vector<Entity> valid_entities = {};
 
             template <typename T>
             inline decltype(auto) getSystemArgument(Entity e)
@@ -402,6 +408,22 @@ namespace vecs
                 }
             }
 
+            inline void findAllValidEntities()
+            {
+                SparseSet<component_t<smallest_T>> &smallest_set = ecs->getOrCreateSparseSet<component_t<smallest_T>>();
+
+                valid_entities.clear();
+                valid_entities.reserve(smallest_set.dense_entities.size());
+
+                for (Entity e : smallest_set.dense_entities)
+                {
+                    if (hasAllComponents(e))
+                    {
+                        valid_entities.push_back(e);
+                    }
+                }
+            }
+
             inline bool hasAllComponents(Entity e)
             {
 
@@ -426,8 +448,8 @@ namespace vecs
         };
 
         // Static Systemhelper to avoid dependent template and get the correct dependent
-        template <typename T, typename... Ts>
-        static inline decltype(auto) get(SystemView<Ts...> &view, Entity e)
+        template <typename T, typename smallest_T, typename... Ts>
+        static inline decltype(auto) get(SystemView<smallest_T, Ts...> &view, Entity e)
         {
 
             using Wrapper = std::conditional_t<
@@ -825,23 +847,32 @@ namespace vecs
             if (smallest_set == nullptr)
                 return;
 
-            SystemView<Ts...> view(this);
+            uint32_t view_id = getViewId<smallest_T, Ts...>();
 
-            size_t smallest_size = smallest_set->dense.size();
-            for (size_t i = 0; i < smallest_size; i++)
+            if (view_id >= system_views.size())
             {
-                Entity e = smallest_set->dense_entities[i];
+                system_views.resize(view_id + 1, nullptr);
+            }
 
-                if (!view.hasAllComponents(e))
-                    continue;
+            if (system_views[view_id] == nullptr)
+            {
+                system_views[view_id] = new SystemView<smallest_T, Ts...>(this);
+            }
 
-                func(view, e, view.template getSystemArgument<Ts>(e)...);
+            auto *view = static_cast<SystemView<smallest_T, Ts...> *>(system_views[view_id]);
+
+            for (Entity e : view->valid_entities)
+            {
+                func(*view, e, view->template getSystemArgument<Ts>(e)...);
             }
         }
 
         template <typename T>
         SparseSet<T> &getOrCreateSparseSet()
         {
+
+            static_assert(!is_read_or_write<T>::value);
+
             uint32_t type_id = getTypeId<T>();
 
             if (type_id >= sets.size())
@@ -857,7 +888,7 @@ namespace vecs
         }
 
         template <typename T>
-        inline static uint32_t getTypeId() noexcept
+        inline uint32_t getTypeId() noexcept
         {
             static const uint32_t id = next_id++;
             return id;
@@ -886,6 +917,18 @@ namespace vecs
         };
 
         std::vector<SystemWrapper> systems;
+
+        template <typename smallest_T, typename... Ts>
+        inline uint32_t getViewId()
+        {
+            static uint32_t id = next_view_id++;
+
+            return id;
+        }
+
+        static inline uint32_t next_view_id = 0;
+
+        std::vector<SystemViewBase *> system_views = {};
 
         std::vector<std::unordered_set<uint32_t>> entity_what_components; // Caches what entity has which components
     };
