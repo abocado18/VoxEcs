@@ -74,7 +74,7 @@ int main()
 
     ecs.insertResource<Time>({0.2f});
 
-    constexpr uint NUM_E = 1'0u;
+    constexpr uint NUM_E = 1'000000u;
 
     for (auto i = 0u; i < NUM_E; i++)
     {
