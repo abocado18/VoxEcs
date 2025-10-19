@@ -313,8 +313,14 @@ namespace vecs
             }
         }
 
+        struct SystemViewBase
+        {
+            virtual ~SystemViewBase() = default;
+            bool is_dirty = false;
+        };
+
         template <typename... Ts>
-        class SystemView
+        class SystemView : SystemViewBase
         {
 
             friend class Ecs;

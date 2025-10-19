@@ -29,7 +29,13 @@ void update(vecs::Ecs &ecs)
                                                                {
                                                                    // Gets executed for each entity with matching components
                                                                    p.x += v.dx;
-                                                                   p.y += v.dy; });
+                                                                   p.y += v.dy; 
+                                                                
+
+                                                                   std::cout << "Pos";
+                                                                
+
+                                                                });
 
     // Run Systems Singlethreaded
     // ecs.runSchedule(Update);
@@ -46,7 +52,7 @@ void update(vecs::Ecs &ecs)
                                                              {
                                                                                   // Gets executed for each entity with matching components
 
-                                                                                  
+                                                                                  std::cout << "Pos";
 
                                                                                   p.x += v.dx;
                                                                                   p.y += v.dy; });
@@ -77,7 +83,14 @@ int main()
             ecs.addComponent<Velocity>(entity, {5 * 0.1f, i * 0.1f});
     }
 
-    update(ecs);
+
+    for (size_t i = 0; i < 5 ; i++)
+    {
+        update(ecs);
+    }
+    
+
+    
 
     return 0;
 }
