@@ -52,7 +52,7 @@ void update(vecs::Ecs &ecs)
                                                              {
                                                                                   // Gets executed for each entity with matching components
 
-                                                                                  std::cout << "Pos";
+                                                                                 
 
 
                                                                                   vecs::Ecs::get<Position>(view, 0);
@@ -74,7 +74,7 @@ int main()
 
     ecs.insertResource<Time>({0.2f});
 
-    constexpr uint NUM_E = 1'000000u;
+    constexpr uint NUM_E = 1'000'000u;
 
     for (auto i = 0u; i < NUM_E; i++)
     {

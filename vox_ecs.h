@@ -246,11 +246,20 @@ namespace vecs
     };
 
     template <typename T>
+    struct DenseEntry
+    {
+
+        static_assert(is_read_or_write<T>::value == false && isResource<T>::value == false);
+
+        T component;
+        Entity entity;
+    };
+
+    template <typename T>
     struct SparseSet : SparseSetBase
     {
 
-        std::vector<T> dense;
-        std::vector<Entity> dense_entities;
+        std::vector<DenseEntry<T>> dense;
         std::vector<uint32_t> sparse;
     };
 
@@ -268,15 +277,14 @@ namespace vecs
             if (component_index == NO_ENTITY)
                 return;
 
-            Entity last_entity = set->dense_entities.back();
+            Entity last_entity = set->dense.back().entity;
 
             set->dense[component_index] = set->dense.back();
-            set->dense_entities[component_index] = last_entity;
 
             set->sparse[last_entity] = component_index;
 
             set->dense.pop_back();
-            set->dense_entities.pop_back();
+
             set->sparse[e] = NO_ENTITY;
         };
     }
@@ -345,11 +353,11 @@ namespace vecs
                 if constexpr (is_read<T>::value)
                 {
 
-                    return static_cast<const component_t<T> &>(sparse_set.dense[sparse_set.sparse.at(e)]);
+                    return static_cast<const component_t<T> &>(sparse_set.dense[sparse_set.sparse.at(e)].component);
                 }
                 else
                 {
-                    return static_cast<component_t<T> &>(sparse_set.dense[sparse_set.sparse.at(e)]);
+                    return static_cast<component_t<T> &>(sparse_set.dense[sparse_set.sparse.at(e)].component);
                 }
             }
 
@@ -367,15 +375,17 @@ namespace vecs
 
                     // Static so each Component SparseSet for each SystemView is only loaded once, then cached
                     static SparseSet<component_t<T>> &sparse_set = ecs->getOrCreateSparseSet<component_t<T>>();
+                    static std::vector<DenseEntry<component_t<T>>> *dense = &sparse_set.dense;
+                    static std::vector<uint32_t> *sparse = &sparse_set.sparse;
 
                     if constexpr (is_read<T>::value)
                     {
                         // Assumes check for Entity happened before
-                        return static_cast<const component_t<T> &>(sparse_set.dense[sparse_set.sparse[e]]);
+                        return static_cast<const component_t<T> &>((*dense)[(*sparse)[e]].component);
                     }
                     else
                     {
-                        return static_cast<component_t<T> &>(sparse_set.dense[sparse_set.sparse[e]]);
+                        return static_cast<component_t<T> &>((*dense)[(*sparse)[e]].component);
                     }
                 }
                 else
@@ -402,21 +412,25 @@ namespace vecs
                 }
             }
 
+
+            template<typename smallest_T>
             inline bool hasAllComponents(Entity e)
             {
 
                 static_assert(((is_read_or_write<Ts>::value || isResource<Ts>::value) && ...), "Must be a resource or component");
 
-                return (... && hasComponent<Ts>(e));
+                return (... && hasComponent<Ts, smallest_T>(e));
             }
 
-            template <typename T>
+            template <typename T, typename smallest_T>
             inline bool hasComponent(Entity e)
             {
-                if constexpr (is_read_or_write<T>::value)
+                if constexpr (is_read_or_write<T>::value && !std::is_same_v<component_t<T>, component_t<smallest_T>>)
                 {
                     static SparseSet<component_t<T>> &sparse_set = ecs->getOrCreateSparseSet<component_t<T>>();
-                    return (e < sparse_set.sparse.size() && sparse_set.sparse[e] != NO_ENTITY);
+                    static std::vector<uint32_t> *sparse = &sparse_set.sparse;
+
+                    return (e < (*sparse).size() && (*sparse)[e] != NO_ENTITY);
                 }
                 else
                 {
@@ -454,8 +468,7 @@ namespace vecs
 
             SparseSet<T> &set = getOrCreateSparseSet<T>();
 
-            set.dense.push_back(component);
-            set.dense_entities.push_back(e);
+            set.dense.push_back({component, e});
 
             uint32_t dense_index = set.dense.size() - 1;
 
@@ -533,7 +546,7 @@ namespace vecs
                         if (count++ == smallest_index)
                         {
                             iterateSparseSet<Ts, Ts...>(
-                                &getOrCreateSparseSet<component_t<Ts>>(), func);
+                                &getOrCreateSparseSet<component_t<Ts>>(), smallest_index, func);
                         }
                     }
                 }(),
@@ -813,7 +826,7 @@ namespace vecs
         }
 
         template <typename smallest_T, typename... Ts, typename Func>
-        inline void iterateSparseSet(SparseSet<component_t<smallest_T>> *smallest_set, Func &&func) noexcept
+        inline void iterateSparseSet(SparseSet<component_t<smallest_T>> *smallest_set, uint32_t smallest_index, Func &&func) noexcept
         {
 
             // smallest T is still in Wrapper
@@ -830,9 +843,9 @@ namespace vecs
             size_t smallest_size = smallest_set->dense.size();
             for (size_t i = 0; i < smallest_size; i++)
             {
-                Entity e = smallest_set->dense_entities[i];
+                Entity e = smallest_set->dense[i].entity;
 
-                if (!view.hasAllComponents(e))
+                if (!view.template hasAllComponents<smallest_T>(e))
                     continue;
 
                 func(view, e, view.template getSystemArgument<Ts>(e)...);
