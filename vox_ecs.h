@@ -24,7 +24,7 @@ namespace vecs
     struct Schedule
     {
 
-        explicit Schedule() {};
+        Schedule() {};
         ~Schedule() = default;
 
         std::unordered_set<uint32_t> systems;
@@ -249,8 +249,6 @@ namespace vecs
     struct DenseEntry
     {
 
-        static_assert(is_read_or_write<T>::value == false && isResource<T>::value == false);
-
         T component;
         Entity entity;
     };
@@ -400,6 +398,12 @@ namespace vecs
 
                     ResourceData<Inner> *data = static_cast<ResourceData<Inner> *>(ecs->resources[resource_id]);
 
+                    if(data == nullptr)
+                    {
+                        std::cerr << "No Resource inserted\n";
+                        std::abort(); 
+                    }
+
                     if constexpr (isMutableResource<T>::value)
                     {
                         return static_cast<Inner &>(data->data);
@@ -412,8 +416,7 @@ namespace vecs
                 }
             }
 
-
-            template<typename smallest_T>
+            template <typename smallest_T>
             inline bool hasAllComponents(Entity e)
             {
 
@@ -750,9 +753,6 @@ namespace vecs
             entity_what_components[e].clear();
         };
 
-    private:
-        thread_pool::ThreadPool pool;
-
         template <typename T>
         T *getComponent(Entity e)
         {
@@ -761,8 +761,11 @@ namespace vecs
             if (e >= set.sparse.size() || set.sparse[e] == NO_ENTITY)
                 return nullptr;
 
-            return &set.dense[set.sparse[e]];
+            return &set.dense[set.sparse[e]].component;
         }
+
+    private:
+        thread_pool::ThreadPool pool;
 
         template <typename T>
         T *getResource()
