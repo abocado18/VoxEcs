@@ -7,7 +7,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 
 
-add_library(VoxEcs thread_pool.h dynamic_bitset.h vox_ecs.h)
-
+add_library(VoxEcs INTERFACE)
+target_include_directories(VoxEcs INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
 
 
